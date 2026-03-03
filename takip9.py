@@ -80,7 +80,7 @@ st.set_page_config(page_title="Delfiee Cloud Pro", layout="wide", page_icon="☁
 if 'ana_veri' not in st.session_state: st.session_state.ana_veri = None
 yollar = ayarlari_yukle()
 
-# --- SIDEBAR (DOSYA KAYIT SİSTEMİ) ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.title("⚙️ Veri Yönetimi")
     page = st.radio("Menü", ["📊 Özet Panel", "📋 Detaylı Takip", "🔍 Barkod Sorgu", "📥 Eksik Listesi"])
@@ -88,25 +88,19 @@ with st.sidebar:
     st.divider()
     st.write("📂 **Dosya Yükleme**")
     
-    # Dosya 1: Ana Liste
     main_file = st.file_uploader("1. Ana Ürün Listesi", type=['xlsx'])
     if main_file:
-        with open("saved_main.xlsx", "wb") as f:
-            f.write(main_file.getbuffer())
+        with open("saved_main.xlsx", "wb") as f: f.write(main_file.getbuffer())
         st.success("✅ Ana liste hafızaya alındı.")
     
-    # Dosya 2: Medya Listesi
     media_file = st.file_uploader("2. Medya Barkod Listesi", type=['xlsx'])
     if media_file:
-        with open("saved_media.xlsx", "wb") as f:
-            f.write(media_file.getbuffer())
+        with open("saved_media.xlsx", "wb") as f: f.write(media_file.getbuffer())
         st.success("✅ Medya listesi hafızaya alındı.")
 
-    # Dosya 3: Nebim
     nebim_file = st.file_uploader("3. Nebim TXT", type=['txt'])
     if nebim_file:
-        with open(NEBIM_CACHE_FILE, "wb") as f:
-            f.write(nebim_file.getbuffer())
+        with open(NEBIM_CACHE_FILE, "wb") as f: f.write(nebim_file.getbuffer())
 
     st.divider()
     bas_tarih = st.date_input("Fiyat Tarihi", yollar["secili_tarih"])
@@ -117,7 +111,6 @@ with st.sidebar:
                 try:
                     df_prod = pd.read_excel("saved_main.xlsx", sheet_name='DmProducts1')
                     df_media = pd.read_excel("saved_media.xlsx")
-                    
                     df_prod.columns = [str(c).strip().upper() for c in df_prod.columns]
                     df_media.columns = [str(c).strip().upper() for c in df_media.columns]
                     
@@ -158,10 +151,8 @@ with st.sidebar:
                     yollar["secili_tarih"] = bas_tarih
                     ayarlari_kaydet(yollar)
                     st.rerun()
-                except Exception as e:
-                    st.error(f"Hata: {e}")
-        else:
-            st.error("Lütfen önce dosyaları yükleyin!")
+                except Exception as e: st.error(f"Hata: {e}")
+        else: st.error("Dosyalar yüklenmemiş!")
 
 # --- SAYFA İÇERİKLERİ ---
 if st.session_state.ana_veri is not None:
@@ -169,10 +160,9 @@ if st.session_state.ana_veri is not None:
     
     if page == "📊 Özet Panel":
         st.header("🚀 Genel Üretim Özeti")
-        c1, c2, c3, c4 = st.columns(4)
         total = len(df); ready = (df["DURUM"] == "HAZIR").sum(); missing = total - ready
-        rate = (ready/total*100) if total > 0 else 0
-        c1.metric("📦 Toplam Ürün", total); c2.metric("✅ Hazır", ready); c3.metric("❌ Eksik", missing); c4.metric("🎯 Başarı Oranı", f"%{rate:.1f}")
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("📦 Toplam Ürün", total); c2.metric("✅ Hazır", ready); c3.metric("❌ Eksik", missing); c4.metric("🎯 Başarı Oranı", f"%{(ready/total*100):.1f}")
         
         st.divider()
         ozet = df.groupby("MARKA").agg(TOPLAM=("BARKOD", "count"), HAZIR=("DURUM", lambda x: (x=="HAZIR").sum()), EKSIK=("DURUM", lambda x: (x=="EKSİK").sum())).reset_index()
@@ -215,16 +205,30 @@ if st.session_state.ana_veri is not None:
                         st.image(f"https://delfieestore.b-cdn.net/{urun['BARKOD']}_(1).jpg", width=300)
                 st.divider()
                 st.subheader("🎨 Varyantlar")
-                st.dataframe(df[df["URUN_KODU"] == urun["URUN_KODU"]][["BARKOD", "RENK", "STOK", "DURUM"]], hide_index=True)
+                st.dataframe(df[df["URUN_KODU"] == urun["URUN_KODU"]][["BARKOD", "RENK", "STOK", "DURUM"]], hide_index=True, use_container_width=True)
             else: st.error("Bulunamadı!")
 
     elif page == "📥 Eksik Listesi":
-        st.header("📥 Eksik Listesi")
+        st.header("📥 Çekilecekler ve Eksikler Listesi")
         eksikler = df[df["DURUM"] == "EKSİK"].copy()
+        
         if not eksikler.empty:
-            st.dataframe(eksikler, use_container_width=True)
+            with st.form("eksik_filtre"):
+                c1, c2, c3 = st.columns([2, 2, 1])
+                f_m_eksik = c1.multiselect("Markayı Süz", options=sorted(eksikler["MARKA"].unique()))
+                f_t_eksik = c2.radio("Eksik Türü", ["Hepsi", "Video Eksik", "Resim Eksik", "Kolaj Eksik"], horizontal=True)
+                f_inv_e = c3.number_input("Min Stok", value=0)
+                st.form_submit_button("Listeyi Hazırla")
+
+            if f_m_eksik: eksikler = eksikler[eksikler["MARKA"].isin(f_m_eksik)]
+            eksikler = eksikler[eksikler["STOK"] >= f_inv_e]
+            if f_t_eksik == "Video Eksik": eksikler = eksikler[eksikler["VIDEO"] == "❌"]
+            elif f_t_eksik == "Resim Eksik": eksikler = eksikler[eksikler["JPG"] == "❌"]
+            elif f_t_eksik == "Kolaj Eksik": eksikler = eksikler[(eksikler["KOLAJ_JPG"] == "❌") | (eksikler["KOLAJ_MP4"] == "❌")]
+
+            st.dataframe(eksikler, use_container_width=True, hide_index=True)
             towrite = io.BytesIO()
             eksikler.to_excel(towrite, index=False, engine='xlsxwriter')
-            st.download_button("📥 Excel İndir", towrite.getvalue(), file_name="eksikler.xlsx", type="primary")
+            st.download_button("📥 Excel İndir", towrite.getvalue(), file_name="eksikler.xlsx", type="primary", use_container_width=True)
 else:
-    st.info("👋 Başlamak için Excel dosyalarını yükleyip 'Analizi Başlat'a basın.")
+    st.info("👋 Başlamak için Excel dosyalarını yükleyin.")
